@@ -8,6 +8,8 @@
 # This program is available under the Lesser General Public Licence (LGPL) Version 3
 # This software is released for didactical and debugging purposes. You're free to use it at your own risk.
 
+# 2017-03-27: adapt to send SIP over TCP, but not able to receive TCP
+
 import socket
 import time
 import sys
@@ -16,6 +18,8 @@ import select
 import cStringIO
 import re
 
+
+from pprint import pprint
 from string import Template
 
 def_request = """OPTIONS sip:%(dest_ip)s:%(dest_port)s SIP/2.0
@@ -68,6 +72,7 @@ def parse_body(f, headers):
         n = int(headers['content-length'])
         body = f.read(n)
         if len(body) != n:
+			#FIXME: len of body can be different in different EOL!
             raise SipNeedData('short body (missing %d bytes)' % (n - len(body)))
     elif 'content-type' in headers:
         body = f.read()
@@ -178,6 +183,7 @@ def render_template(template, template_vars):
         sys.stderr.write("ERROR: missing template variable. %s\n" % e)
         sys.exit(-1)
     except Exception, e:
+		# if there is % in the template text, it will create error. User %% instead!
         sys.stderr.write("ERROR: error in template processing. %s\n" % e)
         sys.exit(-1)
     return ret
@@ -213,29 +219,54 @@ def gen_request(template_vars, options):
 			req.headers["cseq"] = "%d %s" % (i, req.method)
 		yield str(req)
 
-def open_sock(options):
+def open_sock_tcp(options):
 	try:
-		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-		sock.setblocking(0)
+		# sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+		# sock.setblocking(0)
+		sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		sock_tcp.setblocking(1)
 	except Exception, e:
 		sys.stderr.write("ERROR: cannot create socket. %s\n" % e)
 		sys.exit(-1)
 	try:
-		sock.seckopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		sock.seckopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+		sock_tcp.seckopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		sock_tcp.seckopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+	except AttributeError:
+     pass
+	# if options.source_port:
+		# UDP
+		# sock_udp.bind((options.source_ip, options.source_port))
+		# TCP
+		# sock_tcp.connect((options.source_ip, options.source_port))
+	sock_tcp.connect((options.dest_ip, options.dest_port))		
+	sock_tcp.settimeout(options.wait)
+	return sock_tcp
+
+def open_sock_udp(options):
+	try:
+		sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+		sock_udp.setblocking(0)
+	except Exception, e:
+		sys.stderr.write("ERROR: cannot create socket. %s\n" % e)
+		sys.exit(-1)
+	try:
+		sock_udp.seckopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		sock_udp.seckopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 	except AttributeError:
      pass
 	if options.source_port:
-		sock.bind((options.source_ip, options.source_port))
-	sock.settimeout(options.wait)
-	return sock
+		sock_udp.bind((options.source_ip, options.source_port))
+	sock_udp.settimeout(options.wait)
+	return sock_udp	
 
-def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=None, verbose=False, quiet=False):
-	src_ip = buf[1][0]
-	src_port = buf[1][1]
+def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=None, verbose=False, quiet=False, sock_type=None):
+	# only UDO buffer contains connection info. TCP buffer contains buffer data only.
+	if sock_type == 0:
+		src_ip = buf[1][0]
+		src_port = buf[1][1]
 	
-    template_vars['sock_src_ip'] = src_ip
-    template_vars['sock_src_port'] = src_port
+    	template_vars['sock_src_ip'] = src_ip
+    	template_vars['sock_src_port'] = src_port
 
 	try:
 		resp = Response(buf[0])
@@ -379,7 +410,8 @@ def main():
 
 	count = options.count
 	try:
-		sock = open_sock(options)
+		sock_tcp = open_sock_tcp(options)
+		sock_udp = open_sock_udp(options)
 	except Exception, e:
 		sys.stderr.write("ERROR: cannot open socket. %s\n" % e)
 		sys.exit(-1)
@@ -394,8 +426,11 @@ def main():
 				if "content-length" not in sip_req.headers:
 					sip_req.headers["content-length"] = len(sip_req.body)
 				
-				try:	
-					sock.sendto(str(sip_req),(options.dest_ip, options.dest_port))
+				try:
+					# UDP
+					# sock_udp.sendto(str(sip_req),(options.dest_ip, options.dest_port))
+					# TCP
+					sock_tcp.send(str(sip_req))
 				except Exception, e:
 					sys.stderr.write("ERROR: cannot send packet to %s:%d. %s\n" % (options.dest_ip, options.dest_port, e))
 				if not options.quiet:
@@ -404,17 +439,33 @@ def main():
 						sys.stderr.write("\n=== Full Request sent ===\n\n")
 						sys.stderr.write("%s\n" % sip_req)
 				sent += 1
-			
+
+
+
 				if not options.aggressive:
-					read = [sock]
+					read = [sock_udp]
 					inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
 				
 					for s in inputready:
-						if s == sock:
+						if s == sock_udp:
 							buf = None
-							buf = sock.recvfrom(0xffff)
-							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet)
+							buf = sock_udp.recvfrom(0xffff)
+							#print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=0)
+							print buf
 							rcvd += 1
+							
+				if not options.aggressive:
+					read = [sock_tcp]
+					inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
+				
+					for s in inputready:
+						if s == sock_tcp:
+							buf = None
+							buf = sock_tcp.recv(0xffff)
+							# FIX_ME
+							# print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=1)
+							print buf
+							rcvd += 1		
 	
 			except socket.timeout:
 				pass
@@ -423,6 +474,8 @@ def main():
 		pass
 
 	if not options.quiet:
+		# TCP
+	 	sock_tcp.close()
 		sys.stderr.write('\n--- statistics ---\n')
 		sys.stderr.write('%d packets transmitted, %d packets received, %.1f%% packet loss\n' % (sent, rcvd, (float(sent - rcvd) / sent) * 100))
 

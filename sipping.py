@@ -262,19 +262,31 @@ def open_sock_udp(options):
 
 def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=None, verbose=False, quiet=False, sock_type=None):
 	# only UDO buffer contains connection info. TCP buffer contains buffer data only.
-	if sock_type == 0:
+	if sock_type == "UDP":
 		src_ip = buf[1][0]
 		src_port = buf[1][1]
 	
     	template_vars['sock_src_ip'] = src_ip
     	template_vars['sock_src_port'] = src_port
+		try:
+			resp = Response(buf[0])
+		except SipUnpackError, e:
+			resp = Request(buf[0])
 
-	try:
-		resp = Response(buf[0])
-	except SipUnpackError, e:
-		resp = Request(buf[0])
-    
-	server = "%s:%s" % (src_ip,src_port)
+		server = "%s:%s" % (src_ip,src_port)
+
+	elif sock_type == "TCP":
+		src_ip = template_vars['dest_ip']
+		src_port = template_vars['dest_port']
+
+		template_vars['sock_src_ip'] = src_ip
+    	template_vars['sock_src_port'] = src_port
+		try:
+			resp = Response(buf)
+		except SipUnpackError, e:
+			resp = Request(buf)
+
+		server = "%s:%s" % (src_ip,src_port)
 
     if resp.__class__.__name__ == "Response":
         template_vars['status'] = resp.status
@@ -354,7 +366,7 @@ def main():
 	opt.add_option('-p', dest='dest_port', type='int', default=5060,
                            help='*mandatory* Specify the destination port number')
 	
-	opt.add_option('-n', dest='transport_mode', type='string', default="UDP",
+	opt.add_option('-n', dest='transport_mode', type='string', default='UDP',
                        help='*Optional* Specify sending the SIP over UDP(default) or TCP')
 
 	opt.add_option('-r', dest='request_template', type='string', default=None,
@@ -415,21 +427,21 @@ def main():
 
 	count = options.count
 
-	if options.transport_mode == "UDP":
-		try:
-			sock_udp = open_sock_udp(options)
-		except Exception, e:
-			sys.stderr.write("ERROR: cannot open UDP socket. %s\n" % e)
-			sys.exit(-1)
-	elif options.transport_mode == "TCP":
-		try:
-			sock_tcp = open_sock_tcp(options)
-		except Exception, e:
-			sys.stderr.write("ERROR: cannot open TCP socket. %s\n" % e)
-			sys.exit(-1)
-	else:
-		sys.stderr.write('ERROR: transport mode invalid. Specify "UDP" or "TCP".\n')
+
+	# open UDP socket
+	try:
+		sock_udp = open_sock_udp(options)
+	except Exception, e:
+		sys.stderr.write("ERROR: cannot open UDP socket. %s\n" % e)
 		sys.exit(-1)
+
+	# open TCP socket
+	try:
+		sock_tcp = open_sock_tcp(options)
+	except Exception, e:
+		sys.stderr.write("ERROR: cannot open TCP socket. %s\n" % e)
+		sys.exit(-1)
+
 
 	sent = rcvd = ok_recvd = notify_recvd = 0 
 	
@@ -443,10 +455,13 @@ def main():
 				
 				try:
 					# UDP
-					if options.transport_mode == "UDP":
+					if options.transport_mode == 'UDP':
 						sock_udp.sendto(str(sip_req),(options.dest_ip, options.dest_port))
-					else:
+					elif options.transport_mode == 'TCP':
 						sock_tcp.send(str(sip_req))
+					else:
+						sys.stderr.write('ERROR: Unknow transport protocol.\n')
+						sys.exit(-1)		
 				except Exception, e:
 					sys.stderr.write("ERROR: cannot send packet to %s:%d. %s\n" % (options.dest_ip, options.dest_port, e))
 				if not options.quiet:
@@ -457,31 +472,29 @@ def main():
 				sent += 1
 
 
-				if options.transport_mode == "UDP":
-					if not options.aggressive:
-						read = [sock_udp]
-						inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
+
+				if not options.aggressive:
+					read = [sock_udp]
+					inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
+				
+					for s in inputready:
+						if s == sock_udp:
+							buf = None
+							buf = sock_udp.recvfrom(0xffff)
+							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=options.transport_mode)
+							rcvd += 1
+
+				if not options.aggressive:
+					read = [sock_tcp]
+					inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
+				
+					for s in inputready:
+						if s == sock_tcp:
+							buf = None
+							buf = sock_tcp.recv(0xffff)
+							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=options.transport_mode)
+							rcvd += 1
 					
-						for s in inputready:
-							if s == sock_udp:
-								buf = None
-								buf = sock_udp.recvfrom(0xffff)
-								#print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=0)
-								print buf
-								rcvd += 1
-				else:				
-					if not options.aggressive:
-						read = [sock_tcp]
-						inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
-					
-						for s in inputready:
-							if s == sock_tcp:
-								buf = None
-								buf = sock_tcp.recv(0xffff)
-								# FIX_ME
-								# print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=1)
-								print buf
-								rcvd += 1		
 		
 			except socket.timeout:
 				pass
@@ -491,7 +504,7 @@ def main():
 
 	if not options.quiet:
 		# TCP
-		if options.transport_mode=="TCP":
+		if options.transport_mode=='TCP':
 	 		sock_tcp.close()
 
 		sys.stderr.write('\n--- statistics ---\n')

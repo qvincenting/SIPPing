@@ -4,6 +4,11 @@ SIPPing is a simple SIP packet forging tool written in pure Python.
 
 With SIPPing you can create SIP Requests based on simple text templates. In the command line you can define variables that will be substituted in template.
 
+Dev's test:
+python ./sipping.py -r test-template.txt -d 192.168.249.129 -p 5060 -S 192.168.249.130 -P 5060 -n UDP -c 3 -vuser:12
+0 -v destination:192.168.246.129 -v port:5060
+
+
 ### Features:
 
 * inline parsable templates for SIP messaging
@@ -39,14 +44,16 @@ For example using this template saved on file *test-template.txt*:
 
 You need to define three variables: **user**, **destination** and **port**, for example using this command line:
 
-    sipping.py -r test-template.txt -d 172.16.18.35 -p 5060 -S 172.16.18.90  -P 5061 -c 3 -vuser:120 -v destination:192.168.20.1 -v port:5060
+    sipping.py -r test-template.txt -d 172.16.18.35 -p 5060 -S 172.16.18.90  -P 5061 -n TCP -c 3 -vuser:120 -v destination:192.168.20.1 -v port:5060
     
 * **-r test-template.txt** instruct the command to use the template file *test-template.txt*
 * **-d 172.16.18.35** define the destination IP for this SIP request
 * **-p 5060** define the destination port for this SIP request
 * **-S 172.16.18.90** define the local source address used to send this SIP request
 * **-P 5061** define the local source port
+* **-n TCP** define the transport mode for SIP, UDP or TCP. Default is UDP
 * **-c 3** define the number of requests to send out
+
 * **-v user:120** define the template substitution variable **user** with value **120**
 * **-v destination:192.168.20.1** define the template substitution variable **destination** with value **192.168.20.1**
 * **-v port:5060** define the template substitution variable **port** with value **5060**
@@ -176,7 +183,7 @@ Here the list of available options:
 Here a list of examples and some SIP templates contained in the examples/ directory.
 All following examples uses a snom phone as a target device and require these parameters configured on the phone:
 
-* [user_sipusername_as_line](http://wiki.snom.com/wiki/index.php/Settings/ user_sipusername_as_line) (aka "Support for broken registrar") to "on"
+* [user_sipusername_as_line](http://wiki.snom.com/wiki/index.php/Settings/user_sipusername_as_line) (aka "Support for broken registrar") to "on"
 * [filter_registrar](http://wiki.snom.com/wiki/index.php/Settings/filter_registrar) to "off"
 * [network_id_port](http://wiki.snom.com/Settings/network_id_port): 5060
 

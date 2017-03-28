@@ -268,6 +268,8 @@ def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=N
 	
     	template_vars['sock_src_ip'] = src_ip
     	template_vars['sock_src_port'] = src_port
+		template_vars['sock_type'] = sock_type
+		
 		try:
 			resp = Response(buf[0])
 		except SipUnpackError, e:
@@ -281,6 +283,7 @@ def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=N
 
 		template_vars['sock_src_ip'] = src_ip
     	template_vars['sock_src_port'] = src_port
+		template_vars['sock_type'] = sock_type
 		try:
 			resp = Response(buf)
 		except SipUnpackError, e:
@@ -294,14 +297,14 @@ def print_reply(buf, template_vars=None, out_regex=None, out_replace=None, err=N
         if not out_regex:
             out_regex = '(.*\n)*'
         if not out_replace:
-			out_replace = "received Response %(status)s %(reason)s from %(sock_src_ip)s:%(sock_src_port)s cseq=%(seq)s\n" % template_vars
+			out_replace = "received Response %(status)s %(reason)s from %(sock_src_ip)s:%(sock_src_port)s over %(sock_type)s cseq=%(seq)s\n" % template_vars
  	elif resp.__class__.__name__ == "Request":
         template_vars['method'] = resp.method
         template_vars['uri'] = resp.uri
 	    if not out_replace:	
             out_regex = '(.*\n)*'
         if not out_replace:
-            out_replace = "received Request %(method)s %(uri)s from %(sock_src_ip)s:%(sock_src_port)s cseq=%(seq)s\n" % template_vars
+            out_replace = "received Request %(method)s %(uri)s from %(sock_src_ip)s:%(sock_src_port)s over %(sock_type)s cseq=%(seq)s\n" % template_vars
 	if verbose:
         sys.stderr.write("%s\n" % resp)
   
@@ -465,7 +468,7 @@ def main():
 				except Exception, e:
 					sys.stderr.write("ERROR: cannot send packet to %s:%d. %s\n" % (options.dest_ip, options.dest_port, e))
 				if not options.quiet:
-                    sys.stderr.write("sent Request %s to %s:%d cseq=%s len=%d\n" % (sip_req.method, options.dest_ip, options.dest_port, sip_req.headers['cseq'].split()[0], len(str(sip_req))))
+                    sys.stderr.write("sent Request %s to %s:%d over %s cseq=%s len=%d\n" % (sip_req.method, options.dest_ip, options.dest_port, options.transport_mode, sip_req.headers['cseq'].split()[0], len(str(sip_req))))
 					if options.verbose:
 						sys.stderr.write("\n=== Full Request sent ===\n\n")
 						sys.stderr.write("%s\n" % sip_req)
@@ -481,7 +484,7 @@ def main():
 						if s == sock_udp:
 							buf = None
 							buf = sock_udp.recvfrom(0xffff)
-							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=options.transport_mode)
+							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type='UDP')
 							rcvd += 1
 
 				if not options.aggressive:
@@ -492,7 +495,7 @@ def main():
 						if s == sock_tcp:
 							buf = None
 							buf = sock_tcp.recv(0xffff)
-							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=options.transport_mode)
+							print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type='TCP')
 							rcvd += 1
 					
 		

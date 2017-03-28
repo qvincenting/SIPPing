@@ -431,6 +431,7 @@ def main():
 					# sock_udp.sendto(str(sip_req),(options.dest_ip, options.dest_port))
 					# TCP
 					sock_tcp.send(str(sip_req))
+					# TCP END
 				except Exception, e:
 					sys.stderr.write("ERROR: cannot send packet to %s:%d. %s\n" % (options.dest_ip, options.dest_port, e))
 				if not options.quiet:
@@ -453,7 +454,7 @@ def main():
 							#print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=0)
 							print buf
 							rcvd += 1
-							
+				# TCP			
 				if not options.aggressive:
 					read = [sock_tcp]
 					inputready,outputready,exceptready = select.select(read,[],[],options.timeout)
@@ -466,7 +467,8 @@ def main():
 							# print_reply(buf, template_vars, options.out_regex, options.out_replace, verbose=options.verbose, quiet=options.quiet, sock_type=1)
 							print buf
 							rcvd += 1		
-	
+				# TCP end
+
 			except socket.timeout:
 				pass
 			time.sleep(options.wait)
@@ -476,6 +478,7 @@ def main():
 	if not options.quiet:
 		# TCP
 	 	sock_tcp.close()
+		# TCP end
 		sys.stderr.write('\n--- statistics ---\n')
 		sys.stderr.write('%d packets transmitted, %d packets received, %.1f%% packet loss\n' % (sent, rcvd, (float(sent - rcvd) / sent) * 100))
 
